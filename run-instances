@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+import commands
 import sys
 import time
 import random
@@ -20,6 +21,19 @@ max_launch_count = 10
 error_launch_time = 60
 
 launch_times = {}
+def actually_running(instance):
+    if not instance.private_dns_name:
+        return False
+    id_url = "latest/meta-data/instance-id"
+    options = "-s --connect-timeout 0.1"
+    command = "curl %s %s/%s" % (options, instance.private_dns_name, id_url)
+    instance_id = commands.getoutput(command).strip()
+    if not instance_id:
+        return False
+    if instance_id != instance.id:
+        print "incorrect (%s) instance id for %s" % (instance_id, instance.id)
+        return False
+    return True
 
 def main():
     try:
@@ -42,7 +56,7 @@ def main():
                     print "%s,%s,%s, FAIL" % (launch_times[i.id], i.id, host)
                     del launch_times[i.id]
                 euca_conn.terminate_instances([i.id])
-            if i.state == 'running':
+            if i.state == 'running' and actually_running(i):
                 if launch_times.has_key(i.id):
                     host = i.key_name.split(',')[-1].split(')')[0]
                     print '%s,%s,%s, %d' % (launch_times[i.id], i.id, host, time.time()-launch_times[i.id])
