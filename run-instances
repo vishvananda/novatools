@@ -19,7 +19,6 @@ def instances():
 max_instance_count = 30
 max_launch_count = 10
 error_launch_time = 60
-test_host = None
 
 launch_times = {}
 def actually_running(instance):
@@ -36,7 +35,7 @@ def actually_running(instance):
         return False
     return True
 
-def main():
+def main(test_host=None):
     try:
         euca = Euca2ool()
         global euca_conn
@@ -83,6 +82,8 @@ def main():
 
         time.sleep(1)
 
-
 if __name__ == "__main__":
-    main()
+    test_host = None
+    if len(sys.argv) > 1:
+        test_host = sys.argv[1]
+    main(test_host)
