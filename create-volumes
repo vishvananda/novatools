@@ -17,7 +17,7 @@ volume_size = 10
 
 launch_times = {}
 
-def main():
+def main(test_host):
     try:
         euca = Euca2ool()
         global euca_conn
@@ -32,10 +32,12 @@ def main():
 
         # terminate available volumes and check on launched volumes
         for v in vols:
+            host = v.status.split(',')[1].strip()
+            if test_host and host != test_host:
+                continue
             status = v.status.split(' ')[0]
             if status == 'available':
                 if launch_times.has_key(v.id):
-                    host = v.status.split(',')[1].strip()
                     print '%s,%s,%s, %d' % (launch_times[v.id], v.id, host, time.time()-launch_times[v.id])
                     del launch_times[v.id]
                 euca_conn.delete_volume(v.id)
@@ -44,11 +46,18 @@ def main():
         launch_count = min(random.randint(0, max_volume_count-len(vols)), max_launch_count)
         if launch_count > 0:
             for x in range(launch_count):
-                v = euca_conn.create_volume(size=volume_size, zone='nova')
+                if test_host:
+                    zone = 'test:%s' % test_host
+                else:
+                    zone = None
+                v = euca_conn.create_volume(size=volume_size, zone=zone)
                 launch_times[v.id] = time.time()
 
         time.sleep(1)
 
 
 if __name__ == "__main__":
-    main()
+    test_host = None
+    if len(sys.argv) > 1:
+        test_host = sys.argv[0]
+    main(test_host)
