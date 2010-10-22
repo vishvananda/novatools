@@ -1,5 +1,7 @@
 #!/usr/bin/env python
 
+import commands
+import datetime
 import sys
 import time
 import random
@@ -14,7 +16,7 @@ def volumes(test_host):
         if test_host and v.host != test_host:
             continue
         rval.append(v)
-    return 
+    return rval
 
 
 max_volume_count = 50
@@ -29,25 +31,24 @@ def mysql(query):
 def print_stats(host, start, succeeded, failed):
     ran = succeeded + failed
     end = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S")
-    print """STATISTICS
-Host:      %s
-Total:     %s
-Successes: %s
-Failures:  %s
-Started:   %s
-Finished:  %s
-""" % (host, ran, succeeded, failed, start, end)
-    print "MYSQL STATS"
-    where = " where v.host='%s' and created_at > '%s' " % (host, start)
-    mysql("select 'Successes:' as label, count(*) from volumes" +
+    print """%s STATISTICS
+  Volume
+  ------
+  Total:                %s
+  Successes:            %s
+  Failures:             %s
+  Started:              %s
+  Finished:             %s""" % (host.upper(), ran, succeeded, failed, start, end)
+    where = " where host='%s' and created_at > '%s' " % (host, start)
+    mysql("select '  MYSQL Successes:' as label, count(*) from volumes" +
           where + "and launched_at is not null")
     diff = "AVG(TIME_TO_SEC(TIMEDIFF(launched_at, scheduled_at)))"
-    mysql("select 'Avg Time:' as label, %s from volumes" % diff +
+    mysql("select '  MYSQL Avg Time:' as label, %s from volumes" % diff +
           where + "and launched_at is not null")
-    mysql("select 'Failures:' as label, count(*) from volumes" +
+    mysql("select '  MYSQL Failures:' as label, count(*) from volumes" +
           where + "and launched_at is null and deleted_at is not null")
 
-def main(test_host=None, num_to_run=1000):
+def main(test_host, num_to_run):
     try:
         euca = Euca2ool()
         global euca_conn
@@ -60,9 +61,9 @@ def main(test_host=None, num_to_run=1000):
     total_succeeded = 0
     total_failed = 0
     try:
-        while True:
+        while total_succeeded + total_failed < num_to_run:
             vols = volumes(test_host)
-    
+
             # terminate available volumes and check on launched volumes
             for v in vols:
                 status = v.status.split(' ')[0]
@@ -71,8 +72,9 @@ def main(test_host=None, num_to_run=1000):
                         print '%s,%s,%s, %d' % (launch_times[v.id], v.id, v.host, time.time()-launch_times[v.id])
                         del launch_times[v.id]
                     euca_conn.delete_volume(v.id)
+                    total_succeeded = total_succeeded + 1
                 # TODO(vish): verify volumes and check for failures
-    
+
             # launching new volumes
             launch_count = min(random.randint(0, max_volume_count-len(vols)), max_launch_count)
             if launch_count > 0:
@@ -83,16 +85,19 @@ def main(test_host=None, num_to_run=1000):
                         zone = None
                     v = euca_conn.create_volume(size=volume_size, zone=zone)
                     launch_times[v.id] = time.time()
-    
+
             time.sleep(1)
     except:
         pass
     print_stats(test_host, start, total_succeeded, total_failed)
 
 if __name__ == "__main__":
-    test_host = None
     if len(sys.argv) > 1:
         test_host = sys.argv[1]
+    else:
+        print "please specify a host"
+        exit(1)
+    num_to_run = 1000
     if len(sys.argv) > 2:
         num_to_run = sys.argv[2]
     main(test_host, int(num_to_run))

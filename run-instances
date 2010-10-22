@@ -45,26 +45,25 @@ def mysql(query):
 def print_stats(host, start, succeeded, failed):
     ran = succeeded + failed
     end = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S")
-    print """STATISTICS
-Host:      %s
-Total:     %s
-Successes: %s
-Failures:  %s
-Started:   %s
-Finished:  %s
-""" % (host, ran, succeeded, failed, start, end)
-    print "MYSQL STATS"
+    print """%s STATISTICS
+  Compute
+  -------
+  Total:                %s
+  Successes:            %s
+  Failures:             %s
+  Started:              %s
+  Finished:             %s""" % (host.upper(), ran, succeeded, failed, start, end)
     where = " where host='%s' and created_at > '%s' " % (host, start)
-    mysql("select 'Successes:' as label, count(*) from instances" +
+    mysql("select '  MYSQL Successes:' as label, count(*) from instances" +
           where + "and launched_at is not null")
     diff = "AVG(TIME_TO_SEC(TIMEDIFF(launched_at, scheduled_at)))"
-    mysql("select 'Avg Time:' as label, %s from instances" % diff +
+    mysql("select '  MYSQL Avg Time:' as label, %s from instances" % diff +
           where + "and launched_at is not null")
-    mysql("select 'Failures:' as label, count(*) from instances" +
+    mysql("select '  MYSQL Failures:' as label, count(*) from instances" +
           where + "and launched_at is null and deleted_at is not null")
 
 
-def main(test_host=None, num_to_run=1000):
+def main(test_host, num_to_run):
     try:
         euca = Euca2ool()
         global euca_conn
@@ -117,9 +116,12 @@ def main(test_host=None, num_to_run=1000):
     print_stats(test_host, start, total_succeeded, total_failed)
 
 if __name__ == "__main__":
-    test_host = None
     if len(sys.argv) > 1:
         test_host = sys.argv[1]
+    else:
+        print "please specify a host"
+        exit(1)
+    num_to_run = 1000
     if len(sys.argv) > 2:
         num_to_run = sys.argv[2]
     main(test_host, int(num_to_run))
