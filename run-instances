@@ -3,6 +3,7 @@
 import commands
 import sys
 import time
+import datetime
 import random
 from euca2ools import Euca2ool
 
@@ -38,7 +39,32 @@ def actually_running(instance):
         return False
     return True
 
-def main(test_host=None):
+def mysql(query):
+    print '\n'.join(commands.getoutput('mysql nova -e "%s"' % query).split("\n")[1:])
+
+def print_stats(host, start, succeeded, failed):
+    ran = succeeded + failed
+    end = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S")
+    print """STATISTICS
+Host:      %s
+Total:     %s
+Successes: %s
+Failures:  %s
+Started:   %s
+Finished:  %s
+""" % (host, ran, succeeded, failed, start, end)
+    print "MYSQL STATS"
+    where = " where host='%s' and created_at > '%s' " % (host, start)
+    mysql("select 'Successes:' as label, count(*) from instances" +
+          where + "and launched_at is not null")
+    diff = "AVG(TIME_TO_SEC(TIMEDIFF(launched_at, scheduled_at)))"
+    mysql("select 'Avg Time:' as label, %s from instances" % diff +
+          where + "and launched_at is not null")
+    mysql("select 'Failures:' as label, count(*) from instances" +
+          where + "and launched_at is null and deleted_at is not null")
+
+
+def main(test_host=None, num_to_run=1000):
     try:
         euca = Euca2ool()
         global euca_conn
@@ -47,42 +73,53 @@ def main(test_host=None):
         print "environment variables not configured"
         sys.exit(1)
 
-    loop = 0
-    while True:
-        insts = instances(test_host)
+    start = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S")
+    total_succeeded = 0
+    total_failed = 0
+    try:
+        while total_succeeded + total_failed < num_to_run:
+            insts = instances(test_host)
 
-        # terminate running instances and check on launched instances
-        for i in insts:
-            if i.state == 'shutdown':
-                if launch_times.has_key(i.id):
-                    print "%s,%s,%s, FAIL" % (launch_times[i.id], i.id, i.host)
-                    del launch_times[i.id]
+            # terminate running instances and check on launched instances
+            for i in insts:
+                if i.state == 'shutdown':
+                    if launch_times.has_key(i.id):
+                        print "%s,%s,%s, FAIL" % (launch_times[i.id], i.id, i.host)
+                        del launch_times[i.id]
+                        euca_conn.terminate_instances([i.id])
+                        total_failed = total_failed + 1
+                if i.state == 'running' and actually_running(i):
+                    if launch_times.has_key(i.id):
+                        print '%s,%s,%s, %d' % (launch_times[i.id], i.id, i.host, time.time()-launch_times[i.id])
+                        total_succeeded = total_succeeded + 1
+                        del launch_times[i.id]
                     euca_conn.terminate_instances([i.id])
-            if i.state == 'running' and actually_running(i):
-                if launch_times.has_key(i.id):
-                    print '%s,%s,%s, %d' % (launch_times[i.id], i.id, i.host, time.time()-launch_times[i.id])
-                    del launch_times[i.id]
-                euca_conn.terminate_instances([i.id])
 
-        # launching new instances
-        launch_count = min(random.randint(0, max_instance_count-len(insts)), max_launch_count)
-        if launch_count > 0:
-            if test_host:
-                placement = 'test:%s' % test_host
-            else:
-                placement = None
-            r = euca_conn.run_instances(image_id="ami-tiny",
-                                        min_count=launch_count,
-                                        placement=placement,
-                                        max_count=launch_count)
-            assert(len(r.instances) == launch_count)
-            for i in r.instances:
-                launch_times[i.id] = time.time()
+            # launching new instances
+            launch_count = min(random.randint(0, max_instance_count-len(insts)), max_launch_count)
+            if launch_count > 0:
+                if test_host:
+                    placement = 'test:%s' % test_host
+                else:
+                    placement = None
+                r = euca_conn.run_instances(image_id="ami-tiny",
+                                            min_count=launch_count,
+                                            placement=placement,
+                                            instance_type="m1.tiny",
+                                            max_count=launch_count)
+                assert(len(r.instances) == launch_count)
+                for i in r.instances:
+                    launch_times[i.id] = time.time()
 
-        time.sleep(1)
+            time.sleep(1)
+    except:
+        pass
+    print_stats(test_host, start, total_succeeded, total_failed)
 
 if __name__ == "__main__":
     test_host = None
     if len(sys.argv) > 1:
         test_host = sys.argv[1]
-    main(test_host)
+    if len(sys.argv) > 2:
+        num_to_run = sys.argv[2]
+    main(test_host, int(num_to_run))
