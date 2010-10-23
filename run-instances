@@ -54,12 +54,12 @@ def print_stats(host, start, succeeded, failed):
   Started:              %s
   Finished:             %s""" % (host.upper(), ran, succeeded, failed, start, end)
     where = " where host='%s' and created_at > '%s' " % (host, start)
-    mysql("select '  MYSQL Successes:' as label, count(*) from instances" +
+    mysql("select '  MySQL Successes:' as label, count(*) from instances" +
           where + "and launched_at is not null")
     diff = "AVG(TIME_TO_SEC(TIMEDIFF(launched_at, scheduled_at)))"
-    mysql("select '  MYSQL Avg Time:' as label, %s from instances" % diff +
+    mysql("select '  MySQL Avg Time:' as label, %s from instances" % diff +
           where + "and launched_at is not null")
-    mysql("select '  MYSQL Failures:' as label, count(*) from instances" +
+    mysql("select '  MySQL Failures:' as label, count(*) from instances" +
           where + "and launched_at is null and deleted_at is not null")
 
 
