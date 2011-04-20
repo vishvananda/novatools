@@ -72,6 +72,7 @@ def main(test_host, num_to_run):
         print "environment variables not configured"
         sys.exit(1)
 
+    user_data = open('proxy.sh').read()
     start = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S")
     total_succeeded = 0
     total_failed = 0
@@ -101,9 +102,10 @@ def main(test_host, num_to_run):
                     placement = 'test:%s' % test_host
                 else:
                     placement = None
-                r = euca_conn.run_instances(image_id="ami-tiny",
+                r = euca_conn.run_instances(image_id="ami-tty",
                                             min_count=launch_count,
                                             placement=placement,
+                                            user_data=user_data,
                                             instance_type="m1.tiny",
                                             max_count=launch_count)
                 assert(len(r.instances) == launch_count)
