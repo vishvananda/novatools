@@ -1,0 +1,109 @@
+#!/usr/bin/env bash
+# vim: tabstop=4 shiftwidth=4 softtabstop=4
+
+# Copyright 2010 United States Government as represented by the
+# Administrator of the National Aeronautics and Space Administration.
+# All Rights Reserved.
+#
+#    Licensed under the Apache License, Version 2.0 (the "License"); you may
+#    not use this file except in compliance with the License. You may obtain
+#    a copy of the License at
+#
+#         http://www.apache.org/licenses/LICENSE-2.0
+#
+#    Unless required by applicable law or agreed to in writing, software
+#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+#    License for the specific language governing permissions and limitations
+#    under the License.
+
+if [ -z "$1" ]; then
+    echo "usage: nova-debug [instance-name or instance-uuid]"
+    exit 1
+fi
+
+if [ -n "$3" ]; then DEVICE=$3; fi
+
+CMD="all"
+if [ -n "$2" ]; then CMD=$2; fi
+
+INSTANCE_NAME=$1
+if virsh domname $1 >/dev/null 2>&1; then
+    INSTANCE_NAME=`virsh domname $1`
+fi
+
+if ! virsh domuuid $INSTANCE_NAME >/dev/null 2>&1; then
+    echo "$INSTANCE_NAME not found."
+    exit 1
+fi
+INSTANCE_PATH=`virsh dumpxml $INSTANCE_NAME | grep source | grep disk | cut -d\' -f2 | xargs dirname`
+
+if [ $CMD != "umount" ] && [ $CMD != "launch" ]; then
+# destroy the instance
+virsh destroy $INSTANCE_NAME >/dev/null 2>&1
+virsh undefine $INSTANCE_NAME
+
+# mount the filesystem
+mkdir t
+DEVICE=/dev/nbd0
+echo $DEVICE
+sudo qemu-nbd -c $DEVICE $INSTANCE_PATH/disk
+sleep 3
+sudo mount $DEVICE t
+
+fi
+if [ $CMD != "mount" ] &&  [ $CMD != "umount" ]; then
+
+# make serial console listen on ttyS0
+cat >t/etc/init/ttyS0.conf <<TTY_EOF
+# ttyS0 - getty
+#
+# This service maintains a getty on ttyS0 from the point the system is
+# started until it is shut down again.
+
+start on stopped rc RUNLEVEL=[2345]
+stop on runlevel [!2345]
+
+respawn
+exec /sbin/getty -L 115200 ttyS0 xterm
+TTY_EOF
+
+echo
+# set debug root password
+sudo chroot t /usr/bin/passwd -u root
+# TODO(vish): automate this with expect
+sudo chroot t /usr/bin/passwd root
+
+tr -d '\n' < $INSTANCE_PATH/libvirt.xml > debug.xml
+sed -i "s/<serial type=.file.>.*<\/serial>//g" debug.xml
+
+sudo umount t
+
+virsh define debug.xml
+virsh start $INSTANCE_NAME
+virsh console $INSTANCE_NAME
+virsh destroy $INSTANCE_NAME
+virsh undefine $INSTANCE_NAME
+rm debug.xml
+
+sudo mount $DEVICE t
+
+# clear debug root password
+sudo chroot t /usr/bin/passwd -l root
+
+# remove the serial console conf
+rm -f t/etc/init/ttyS0.conf
+
+fi
+if [ $CMD != "mount" ] && [ $CMD != "launch" ]; then
+
+# unmount the filesystem
+sudo umount t
+sudo qemu-nbd -d $DEVICE
+rmdir t
+
+# recreate the instance
+virsh define $INSTANCE_PATH/libvirt.xml
+virsh start $INSTANCE_NAME
+fi
+
