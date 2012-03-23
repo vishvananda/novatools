@@ -28,6 +28,7 @@ scr_fg_colour = curses.COLOR_GREEN
 scr_bg_colour = 0
 window_fg_colour = curses.COLOR_GREEN
 window_bg_colour = 16
+console_lines = 100
 
 conn = None
 
@@ -86,10 +87,10 @@ def handle_keypress(screen):
     elif key in ("O",):
         if selected_instance in instances:
             instance = conn.servers.get(selected_instance)
-            result = instance.get_console_output(1000)
+            result = instance.get_console_output(console_lines)
             # FIXME: use a pad and let the user scroll through the output
             y, x = screen.getmaxyx()
-            mypad = curses.newpad(1001, x)
+            mypad = curses.newpad(console_lines + 1, x)
             mypad.bkgdset(' ', curses.color_pair(1))
             mypad_pos = 0
             for i, line in enumerate(result.split('\n')):
@@ -104,8 +105,12 @@ def handle_keypress(screen):
                     continue
                 if key in ("KEY_DOWN", "J"):
                     mypad_pos -= 1
+                    if mypad_pos < 0:
+                        mypad_pos = 0
                 elif key in ("KEY_UP", "K"):
                     mypad_pos += 1
+                    if mypad_pos > console_lines:
+                        mypad_pos = console_lines
                 elif key in ("Q",):
                     break;
     elif key in ("T",):
