@@ -38,15 +38,18 @@ if ! virsh domuuid $INSTANCE_NAME >/dev/null 2>&1; then
 fi
 INSTANCE_PATH=`virsh dumpxml $INSTANCE_NAME | grep source | grep disk | cut -d\' -f2 | xargs dirname`
 
+DEVICE=/dev/nbd0
+echo $DEVICE
+
 if [ $CMD != "umount" ] && [ $CMD != "launch" ]; then
 # destroy the instance
 virsh destroy $INSTANCE_NAME >/dev/null 2>&1
-virsh undefine $INSTANCE_NAME
+if [ $CMD != "mount" ]; then
+    virsh undefine $INSTANCE_NAME
+fi
 
 # mount the filesystem
 mkdir t
-DEVICE=/dev/nbd0
-echo $DEVICE
 sudo qemu-nbd -c $DEVICE $INSTANCE_PATH/disk
 sleep 3
 sudo kpartx -a $DEVICE
@@ -57,7 +60,7 @@ fi
 sudo mount $MOUNT_DEVICE t
 
 fi
-if [ $CMD != "mount" ] &&  [ $CMD != "umount" ]; then
+if [ $CMD != "mount" ] && [ $CMD != "umount" ]; then
 
 # make serial console listen on ttyS0
 cat >t/etc/init/ttyS0.conf <<TTY_EOF
@@ -111,7 +114,9 @@ sudo qemu-nbd -d $DEVICE
 rmdir t
 
 # recreate the instance
+if [ $CMD != "umount" ]; then
 virsh define $INSTANCE_PATH/libvirt.xml
+fi
 virsh start $INSTANCE_NAME
 fi
 
