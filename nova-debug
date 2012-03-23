@@ -106,10 +106,8 @@ fi
 if [ $CMD != "mount" ] && [ $CMD != "launch" ]; then
 
 # unmount the filesystem
-sudo umount $MOUNT_DEVICE t
-if [ -e "/dev/mapper/${DEVICE}p1" ]; then
-    kpartx -d $MOUNT_DEVICE
-fi
+sudo umount t
+kpartx -d $DEVICE
 sudo qemu-nbd -d $DEVICE
 rmdir t
 
