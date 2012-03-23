@@ -1,12 +1,14 @@
 #!/usr/bin/env python
 
-import cStringIO
 import curses
 from itertools import count
 import locale
 import sys
 
+from novaclient import client
+from novaclient import exceptions as exc
 from novaclient import shell
+from novaclient import utils
 
 __version__ = "0.2"
 
@@ -28,6 +30,9 @@ window_fg_colour = curses.COLOR_GREEN
 window_bg_colour = 16
 
 conn = None
+
+class BadCredentials(Exception):
+    pass
 
 def move_selection(reverse=False):
     """
@@ -169,22 +174,107 @@ def display_output(screen):
         win.addstr(y(), x, line.center(screen_width), curses.A_NORMAL)
     win.refresh()
 
+def get_client(argv):
+    """Mostly copied from novaclient shell.main()"""
+    # strip any args passed in and use help commmand for shell parser
+    argv = [arg for arg in argv if arg.startswith('-')] + ['help']
+    sh = shell.OpenStackComputeShell()
+    parser = sh.get_base_parser()
+    (options, args) = parser.parse_known_args(argv)
+
+    # build available subcommands based on version
+    sh.extensions = sh._discover_extensions(options.version)
+    sh._run_extension_hooks('__pre_parse_args__')
+
+    subcommand_parser = sh.get_subcommand_parser(options.version)
+    sh.parser = subcommand_parser
+
+    args = subcommand_parser.parse_args(argv)
+    sh._run_extension_hooks('__post_parse_args__', args)
+
+    (os_username, os_password, os_tenant_name, os_auth_url,
+            os_region_name, endpoint_type,
+            insecure, service_type, service_name,
+            username, apikey, projectid, url, region_name) = (
+                    args.os_username, args.os_password,
+                    args.os_tenant_name, args.os_auth_url,
+                    args.os_region_name, args.endpoint_type,
+                    args.insecure, args.service_type, args.service_name,
+                    args.username, args.apikey, args.projectid,
+                    args.url, args.region_name)
+
+    if not endpoint_type:
+        endpoint_type = shell.DEFAULT_NOVA_ENDPOINT_TYPE
+
+    if not service_type:
+        service_type = shell.DEFAULT_NOVA_SERVICE_TYPE
+        service_type = utils.get_service_type(args.func) or service_type
+
+    if not utils.isunauthenticated(args.func):
+        if not os_username:
+            if not username:
+                raise exc.CommandError("You must provide a username "
+                        "via either --os_username or env[OS_USERNAME]")
+            else:
+                os_username = username
+
+        if not os_password:
+            if not apikey:
+                raise exc.CommandError("You must provide a password "
+                        "via either --os_password or via "
+                        "env[OS_PASSWORD]")
+            else:
+                os_password = apikey
+
+        if not os_tenant_name:
+            if not projectid:
+                raise exc.CommandError("You must provide a tenant name "
+                        "via either --os_tenant_name or "
+                        "env[OS_TENANT_NAME]")
+            else:
+                os_tenant_name = projectid
+
+        if not os_auth_url:
+            if not url:
+                raise exc.CommandError("You must provide an auth url "
+                        "via either --os_auth_url or env[OS_AUTH_URL]")
+            else:
+                os_auth_url = url
+
+        if not os_region_name and region_name:
+            os_region_name = region_name
+
+    if options.version and options.version != '1.0':
+        if not os_tenant_name:
+            raise exc.CommandError("You must provide a tenant name "
+                    "via either --os_tenant_name or env[OS_TENANT_NAME]")
+
+        if not os_auth_url:
+            raise exc.CommandError("You must provide an auth url "
+                    "via either --os_auth_url or env[OS_AUTH_URL]")
+
+    cs = client.Client(options.version, os_username, os_password,
+                            os_tenant_name, os_auth_url, insecure,
+                            region_name=os_region_name,
+                            endpoint_type=endpoint_type,
+                            extensions=sh.extensions,
+                            service_type=service_type,
+                            service_name=service_name)
+    try:
+        if not utils.isunauthenticated(args.func):
+            cs.authenticate()
+    except exc.Unauthorized:
+        raise exc.CommandError("Invalid OpenStack Nova credentials.")
+    except exc.AuthorizationFailure:
+        raise exc.CommandError("Unable to authorize user")
+    return cs
+
 def main(stdscr):
     """
     Main entry point for nova top.
     """
-    try:
-        # FIXME(vish): remove this hack to avoid parsing env
-        old_stdout = sys.stdout
-        sys.stdout = mystdout = cStringIO.StringIO()
-        sh = shell.OpenStackComputeShell()
-        sh.main(['list'])
-        sys.stdout = old_stdout
-        global conn
-        conn = sh.cs
-    except:
-        print "environment variables not configured"
-        sys.exit(1)
+    global conn
+    conn = get_client(sys.argv[1:])
 
     curses.curs_set(False)
     stdscr.keypad(True)
@@ -203,4 +293,8 @@ def main(stdscr):
 
 if __name__ == "__main__":
     locale.setlocale(locale.LC_ALL, "")
-    curses.wrapper(main)
+    try:
+        curses.wrapper(main)
+    except exc.CommandError as ex:
+        print unicode(ex)
+        sys.exit(1)
